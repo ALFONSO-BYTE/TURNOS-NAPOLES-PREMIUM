@@ -71,6 +71,12 @@
 <body class="bg-white text-black font-sans antialiased overflow-x-hidden">
 
     <div id="view-home" class="view-container min-h-screen flex-col bg-white overflow-hidden relative active">
+        <!-- Botón Pantalla Completa -->
+        <button id="btn-fullscreen" type="button" onclick="toggleFullscreen()" class="absolute top-4 left-4 z-20 opacity-30 hover:opacity-100 transition-opacity p-2 text-black bg-slate-100 rounded-full shadow-md" title="Pantalla completa" aria-label="Pantalla completa">
+            <svg id="fs-icon-enter" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+            <svg id="fs-icon-exit" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+        </button>
+
         <!-- Acceso Empleados (Oculto en la esquina) -->
         <button onclick="openPinModal('access')" class="absolute top-4 right-4 z-20 opacity-30 hover:opacity-100 transition-opacity p-2 text-black bg-slate-100 rounded-full shadow-md" title="Acceso Empleados">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -703,6 +709,48 @@
             }
         });
 
+    </script>
+
+    <!-- Script Pantalla Completa -->
+    <script>
+        (function () {
+            function isFullscreen() {
+                return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+            }
+            function updateFsButton() {
+                var on = isFullscreen();
+                var enter = document.getElementById('fs-icon-enter');
+                var exit = document.getElementById('fs-icon-exit');
+                var btn = document.getElementById('btn-fullscreen');
+                if (enter) enter.style.display = on ? 'none' : '';
+                if (exit) exit.style.display = on ? '' : 'none';
+                if (btn) {
+                    btn.title = on ? 'Salir de pantalla completa' : 'Pantalla completa';
+                    btn.setAttribute('aria-label', btn.title);
+                }
+            }
+            window.toggleFullscreen = function () {
+                var el = document.documentElement;
+                if (!isFullscreen()) {
+                    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+                    if (req) {
+                        var r = req.call(el);
+                        if (r && r.catch) r.catch(function () {});
+                    } else {
+                        alert('Este navegador no permite pantalla completa desde un botón.\nEn iPhone/iPad: Compartir → "Agregar a pantalla de inicio" y abre desde ese ícono.');
+                    }
+                } else {
+                    var exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+                    if (exit) {
+                        var r2 = exit.call(document);
+                        if (r2 && r2.catch) r2.catch(function () {});
+                    }
+                }
+            };
+            document.addEventListener('fullscreenchange', updateFsButton);
+            document.addEventListener('webkitfullscreenchange', updateFsButton);
+            document.addEventListener('MSFullscreenChange', updateFsButton);
+        })();
     </script>
 </body>
 </html>
