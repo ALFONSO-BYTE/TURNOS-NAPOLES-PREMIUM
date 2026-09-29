@@ -307,6 +307,8 @@
     </div>
 
 
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
     <script>
         // === CONFIGURACIÓN Y ESTADO ===
         const PIN_EMPLEADOS = "2468";
@@ -440,27 +442,47 @@
         }
 
 
-        // === SINCRONIZACIÓN EN TIEMPO REAL (LocalStorage) ===
-        function loadTurns() {
-            const saved = localStorage.getItem('sastreria_turns');
-            if(saved) {
-                try { turns = JSON.parse(saved); } catch(e) { turns = []; }
-            }
-        }
+        // === BASE DE DATOS COMPARTIDA (Firebase Realtime Database) ===
+        // PEGA AQUÍ TU CONFIGURACIÓN (Firebase Console > Configuración del proyecto > Tus apps > Web)
+        const firebaseConfig = {
+            apiKey: "AIzaSyAxKjsTPOvkz2_1CepVAagT1Wgk0Mg90mc",
+            authDomain: "turnos-napoles.firebaseapp.com",
+            databaseURL: "https://turnos-napoles-default-rtdb.firebaseio.com",
+            projectId: "turnos-napoles",
+            storageBucket: "turnos-napoles.firebasestorage.app",
+            messagingSenderId: "314048318222",
+            appId: "1:314048318222:web:86c80ead0727c53d51a55f"
+        };
 
-        function saveTurns() {
-            localStorage.setItem('sastreria_turns', JSON.stringify(turns));
-        }
+        const FIREBASE_LISTO = !firebaseConfig.apiKey.startsWith("PEGAR");
+        let turnsRef, counterRef;
 
-        // Sincronizar automáticamente entre pestañas/pantallas sin recargar
-        window.addEventListener('storage', (e) => {
-            if(e.key === 'sastreria_turns') {
-                loadTurns();
-                if(document.getElementById('view-employee').classList.contains('active')) {
+        if (FIREBASE_LISTO) {
+            firebase.initializeApp(firebaseConfig);
+            const db = firebase.database();
+            turnsRef = db.ref('turns');
+            counterRef = db.ref('turnCounter');
+
+            // Escucha en tiempo real: cualquier cambio desde cualquier dispositivo llega aquí
+            turnsRef.on('value', (snap) => {
+                turns = Object.values(snap.val() || {});
+                if (document.getElementById('view-employee').classList.contains('active')) {
                     renderEmployeePanel();
                 }
-            }
-        });
+            }, (err) => {
+                console.error(err);
+                alert('No se pudo leer la base de datos: ' + err.message);
+            });
+        } else {
+            console.warn('Firebase no configurado: completa firebaseConfig.');
+        }
+
+        // Se mantiene por compatibilidad: los datos ya se sincronizan solos
+        function loadTurns() {}
+
+        function escapeHtml(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
 
 
         // === LÓGICA DE FLUJO DE CLIENTES ===
@@ -476,39 +498,43 @@
         });
 
         function handleServiceSelection(service) {
-            loadTurns();
-            const maxTurn = turns.length > 0 ? Math.max(...turns.map(t => t.turnNumber)) : 0;
-            const newTurnNumber = maxTurn + 1;
-            
-            const newTurn = {
-                id: 't_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-                turnNumber: newTurnNumber,
-                name: currentCustomer.name,
-                cedula: currentCustomer.cedula,
-                service: service,
-                status: 'waiting',
-                timestamp: Date.now(),
-                attendedAt: null
-            };
+            if (!FIREBASE_LISTO) { alert('La base de datos aún no está configurada.'); return; }
+            const customer = { ...currentCustomer };
 
-            turns.push(newTurn);
-            saveTurns();
-            
-            // Mostrar confirmación
-            document.getElementById('display-turn-number').textContent = String(newTurnNumber).padStart(3, '0');
-            switchView('view-confirmation');
-
-            // Limpiar datos
-            document.getElementById('input-name').value = '';
-            document.getElementById('input-cedula').value = '';
-            currentCustomer = { name: '', cedula: '' };
-
-            // Volver al inicio tras 3.5 segundos
-            setTimeout(() => {
-                if(document.getElementById('view-confirmation').classList.contains('active')) {
-                    switchView('view-home');
+            // El contador se incrementa de forma atómica: sin números repetidos aunque
+            // dos clientes se registren al mismo tiempo desde dispositivos distintos
+            counterRef.transaction(n => (n || 0) + 1, (err, committed, snap) => {
+                if (err || !committed) {
+                    alert('No se pudo registrar el turno. Revisa tu conexión e intenta de nuevo.');
+                    return;
                 }
-            }, 3500);
+                const newTurnNumber = snap.val();
+                const id = 't_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+
+                turnsRef.child(id).set({
+                    id,
+                    turnNumber: newTurnNumber,
+                    name: customer.name,
+                    cedula: customer.cedula,
+                    service: service,
+                    status: 'waiting',
+                    timestamp: Date.now(),
+                    attendedAt: null
+                }).then(() => {
+                    document.getElementById('display-turn-number').textContent = String(newTurnNumber).padStart(3, '0');
+                    switchView('view-confirmation');
+
+                    document.getElementById('input-name').value = '';
+                    document.getElementById('input-cedula').value = '';
+                    currentCustomer = { name: '', cedula: '' };
+
+                    setTimeout(() => {
+                        if (document.getElementById('view-confirmation').classList.contains('active')) {
+                            switchView('view-home');
+                        }
+                    }, 3500);
+                }).catch(e => alert('Error al guardar: ' + e.message));
+            });
         }
 
 
@@ -545,11 +571,11 @@
                                 #${String(turn.turnNumber).padStart(3, '0')}
                             </span>
                         </td>
-                        <td class="p-2 md:p-4 font-medium text-slate-800 text-xs md:text-base break-words">${turn.name}<div class="md:hidden text-[10px] font-normal text-slate-500">${turn.cedula}</div></td>
-                        <td class="hidden md:table-cell p-4 text-slate-500">${turn.cedula}</td>
+                        <td class="p-2 md:p-4 font-medium text-slate-800 text-xs md:text-base break-words">${escapeHtml(turn.name)}<div class="md:hidden text-[10px] font-normal text-slate-500">${escapeHtml(turn.cedula)}</div></td>
+                        <td class="hidden md:table-cell p-4 text-slate-500">${escapeHtml(turn.cedula)}</td>
                         <td class="p-2 md:p-4">
                             <span class="inline-block px-2 md:px-3 py-0.5 md:py-1 bg-slate-100 text-slate-700 rounded-full text-[10px] md:text-sm border border-slate-200">
-                                ${turn.service}
+                                ${escapeHtml(turn.service)}
                             </span>
                         </td>
                         <td class="p-2 md:p-4 text-right">
@@ -583,8 +609,8 @@
                         <td class="p-2 md:p-4">
                             <span class="font-bold text-slate-400 text-xs md:text-base">#${String(turn.turnNumber).padStart(3, '0')}</span>
                         </td>
-                        <td class="p-2 md:p-4 font-medium text-xs md:text-base break-words">${turn.name}</td>
-                        <td class="p-2 md:p-4 text-[10px] md:text-sm">${turn.service}</td>
+                        <td class="p-2 md:p-4 font-medium text-xs md:text-base break-words">${escapeHtml(turn.name)}</td>
+                        <td class="p-2 md:p-4 text-[10px] md:text-sm">${escapeHtml(turn.service)}</td>
                         <td class="p-2 md:p-4 text-right text-[10px] md:text-sm font-mono">${time}</td>
                     `;
                     tbodyAttended.appendChild(tr);
@@ -593,14 +619,9 @@
         }
 
         window.markAttended = function(id) {
-            loadTurns();
-            const index = turns.findIndex(t => t.id === id);
-            if(index !== -1) {
-                turns[index].status = 'attended';
-                turns[index].attendedAt = Date.now();
-                saveTurns();
-                renderEmployeePanel();
-            }
+            if (!FIREBASE_LISTO) return;
+            turnsRef.child(id).update({ status: 'attended', attendedAt: Date.now() })
+                .catch(e => alert('Error: ' + e.message));
         }
 
 
@@ -633,9 +654,10 @@
                 if (pinPurpose === 'access') {
                     switchView('view-employee');
                 } else if (pinPurpose === 'reset') {
-                    turns = [];
-                    saveTurns();
-                    renderEmployeePanel();
+                    if (FIREBASE_LISTO) {
+                        turnsRef.remove();
+                        counterRef.set(0);
+                    }
                 }
             } else {
                 errorPin.classList.remove('hidden');
@@ -644,8 +666,6 @@
             }
         });
 
-        // Cargar turnos iniciales al abrir
-        loadTurns();
     </script>
 </body>
 </html>
